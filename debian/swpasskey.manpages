@@ -1,0 +1,4 @@
+debian/man/swpasskeyd.1
+debian/man/swpasskeyctl.1
+debian/man/swpasskeyd.zh_CN.1
+debian/man/swpasskeyctl.zh_CN.1

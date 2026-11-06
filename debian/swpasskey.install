@@ -1,0 +1,3 @@
+debian/70-swpasskey.rules usr/lib/udev/rules.d/
+debian/swpasskey.conf usr/lib/modules-load.d/
+debian/swpasskey.desktop etc/xdg/autostart/

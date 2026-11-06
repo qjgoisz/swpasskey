@@ -1,0 +1,24 @@
+[Unit]
+Description=TPM-backed virtual FIDO2 authenticator
+Documentation=https://github.com/madeye/swpasskey
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/swpasskeyd --key-backend=tpm
+Environment=SWPASSKEY_PRESENCE=notify
+Environment=SWPASSKEY_TESTING=0
+Environment=SWPASSKEY_TPM_TCTI=device:/dev/tpmrm0
+UnsetEnvironment=SWPASSKEY_HID_SOCKET SWPASSKEY_TPM_UNSAFE_NOTPMRM
+StandardInput=null
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=graphical-session.target

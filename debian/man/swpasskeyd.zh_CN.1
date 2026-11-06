@@ -1,0 +1,112 @@
+.\" -*- coding: UTF-8 -*-
+.TH SWPASSKEYD 1 "2026-11-04" "swpasskey 0.2.0" "用户命令"
+.ds AD l
+.nr HY 0
+.mso zh.tmac
+.SH 名称
+swpasskeyd \- 使用 TPM 密钥和桌面确认的虚拟 FIDO2 认证器
+.SH 概述
+.B swpasskeyd
+.RI [ 选项 ]
+.SH 描述
+通过 Linux UHID 创建虚拟 FIDO HID 设备，让浏览器将其作为安全密钥，
+用于 WebAuthn 注册和登录。Debian 用户服务强制使用 TPM 签名密钥，
+并通过带“允许／拒绝”按钮的桌面通知请求在场确认。
+浏览器负责 CTAP PIN 输入，桌面通知负责在场确认。
+浏览器可能在有限时间内缓存 PIN 验证令牌，并非每次操作都重新询问 PIN。
+.PP
+这是软件认证器。PIN 和在场确认均不是由 TPM 硬件强制验证。
+同用户恶意程序即使无法直接导出私钥，仍可能使用 TPM 密钥签名。
+请保留独立的账户恢复方式。
+.SH 选项
+.TP
+.B \-\-help
+显示命令帮助并退出。
+.TP
+.B \-\-version
+显示上游程序版本并退出。Debian 软件包修订号请使用 dpkg-query 查询。
+.TP
+.BI \-\-key-backend= 后端
+可选 auto、se、tpm 或 software。Linux 的 auto 模式可能回退到软件密钥；
+Debian 服务明确指定 tpm，TPM 不可用时失败。se 用于 macOS。
+.TP
+.BI \-\-store " 路径"
+指定凭据存储文件。
+.TP
+.BI \-\-ctl-socket " 路径"
+指定 Unix 控制套接字，优先于 SWPASSKEY_CTL_SOCKET。
+.TP
+.B \-\-dek-file
+将存储加密密钥保存在权限为 0600 的旁置文件中，而不使用桌面密钥环。
+此选项不提供额外的 PIN 保护。
+.TP
+.B \-\-testing
+请求用于开发的自动在场批准。本 Debian 发布构建会拒绝此选项。
+不要对真实凭据使用自动批准。
+.SH DEBIAN 用户服务
+服务以登录用户身份运行，无需 root。XDG 自启动在图形登录时启动服务。
+不要让另一个进程同时使用相同的凭据存储。
+.PP
+.nf
+systemctl --user status swpasskeyd.service
+systemctl --user restart swpasskeyd.service
+journalctl --user -u swpasskeyd.service -b
+swpasskeyctl stats
+.fi
+.PP
+首次安装后重启电脑，以加载 UHID 并应用当前本地用户的设备访问规则。
+检查 stats 显示 TPM 后端，日志中出现 presence_notify_ready。
+桌面通知服务器必须支持操作按钮；勿扰模式可能隐藏通知。
+通知后端不可用时，上游会回退到标准输入；用户服务没有交互终端，
+因此请求会超时，不会自动批准。
+.PP
+要关闭登录启动，请在桌面自启动设置中禁用 swpasskey 条目。
+仅执行 systemctl --user disable 不会禁用 XDG 自启动。
+.SH 环境变量
+.TP
+.B SWPASSKEY_LOG
+日志级别：error、warn、info 或 debug。
+.TP
+.B SWPASSKEY_PRESENCE
+Linux 支持 auto、stdin 或 notify。Debian 服务设置为 notify。
+.TP
+.B SWPASSKEY_TPM_TCTI
+TPM 传输配置，通常为 device:/dev/tpmrm0；Debian 服务固定使用此值。
+.TP
+.B SWPASSKEY_CTL_SOCKET
+覆盖控制套接字默认路径；命令行 --ctl-socket 优先。
+.TP
+.BR XDG_DATA_HOME "、" XDG_RUNTIME_DIR
+分别指定数据目录和运行时目录的基目录。
+.TP
+.BR SWPASSKEY_TESTING "、" SWPASSKEY_HID_SOCKET "、" SWPASSKEY_TPM_UNSAFE_NOTPMRM
+分别控制开发用自动批准、替代 UHID 的套接字传输和不安全 TPM 传输。
+日常使用不要设置；Debian 服务会禁用或移除这些覆盖值。
+.SH 文件
+.TP
+.I $XDG_DATA_HOME/swpasskey/credentials.bin
+凭据文件。未设置 XDG_DATA_HOME 时，使用
+~/.local/share/swpasskey/credentials.bin。
+加密密钥通常保存在桌面密钥环；密钥环不可用时上游支持回退到权限为 0600 的旁置文件。
+.TP
+.I $XDG_RUNTIME_DIR/swpasskey/ctl.sock
+默认控制套接字。未设置 XDG_RUNTIME_DIR 时放在数据目录中。
+.TP
+.I /etc/xdg/autostart/swpasskey.desktop
+图形登录自启动配置。
+.TP
+.I /usr/lib/systemd/user/swpasskeyd.service
+软件包提供的用户服务。使用 systemctl --user edit 创建本地覆盖配置。
+.TP
+.I /usr/lib/udev/rules.d/70-swpasskey.rules
+当前活动本地用户的设备访问规则。UHID 权限允许创建虚拟 HID 设备。
+.SH 注意事项
+卸载软件包不会删除用户凭据，也不会撤销网站上的 passkey。
+不要通过清空 TPM 或删除凭据文件排障，这可能使凭据无法使用。
+卸载前先停止服务。
+.SH 参见
+.BR swpasskeyctl (1)、
+.BR systemctl (1)、
+.BR journalctl (1)
+.PP
+https://github.com/madeye/swpasskey

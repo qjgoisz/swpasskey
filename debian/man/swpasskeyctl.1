@@ -1,0 +1,85 @@
+.\" -*- coding: UTF-8 -*-
+.TH SWPASSKEYCTL 1 "2026-11-04" "swpasskey 0.2.0" "User Commands"
+.SH NAME
+swpasskeyctl \- inspect and control the local swpasskey authenticator
+.SH SYNOPSIS
+.B swpasskeyctl
+.RB [ \-\-socket " " PATH ]
+.RB [ \-\-json ]
+.I command
+.RI [ argument ]
+.SH DESCRIPTION
+Communicate with the user's running swpasskeyd through its Unix control socket.
+Run as the same ordinary user as the daemon. No administrator privileges are
+needed. This command does not start the daemon.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show command help.
+.TP
+.BI \-\-socket " path"
+Select the control socket, overriding SWPASSKEY_CTL_SOCKET.
+.TP
+.B \-\-json
+Print the raw JSON response for any command. For list, this includes full IDs.
+.SH COMMANDS
+.TP
+.B list
+List stored credentials, including site, user, credential ID and key backend.
+The displayed ID is a unique prefix at the time of listing.
+.TP
+.B stats
+Show counters, selected key backend and credential counts. For the Debian
+service, verify that the backend is TPM.
+.TP
+.B set-pin
+Set or replace the CTAP PIN, prompting twice with terminal echo disabled.
+Requires presence approval through the daemon. The local control operation does
+not ask for the old PIN. Never supply the PIN as a command-line argument or
+paste it into logs or chat. Setting a PIN does not replace existing credentials.
+.TP
+.BI delete " credential-id"
+Delete one credential by a unique hexadecimal prefix of 4 to 64 characters.
+Case is ignored. If multiple IDs match, provide more characters. Deletion is
+irreversible locally and does not remove the corresponding website registration.
+There is no separate presence confirmation for this command.
+.TP
+.B reset
+Reset the authenticator after presence approval. Clears credentials and PIN
+state; existing website registrations will no longer authenticate. Use only
+when intentionally discarding this authenticator.
+.TP
+.BI log-level " level"
+Change the running daemon's log level: error, warn, info, or debug. The change
+is not persisted across daemon restarts.
+.TP
+.B quit
+Ask the daemon to exit. Does not disable future login startup.
+.SH EXAMPLES
+Inspect the authenticator and set a PIN interactively:
+.PP
+.nf
+swpasskeyctl stats
+swpasskeyctl list
+swpasskeyctl list --json
+swpasskeyctl set-pin
+.fi
+.SH ENVIRONMENT
+.TP
+.B SWPASSKEY_CTL_SOCKET
+Override the default control socket.
+.TP
+.B XDG_RUNTIME_DIR
+Default socket is $XDG_RUNTIME_DIR/swpasskey/ctl.sock. Without this variable,
+uses the data directory ($XDG_DATA_HOME/swpasskey, or ~/.local/share/swpasskey).
+.SH EXIT STATUS
+0 on success, 1 on a communication or daemon-reported failure, and 2 for detected
+command-line usage errors, including mismatched PIN confirmation.
+.SH SECURITY
+The PIN and presence prompt are software checks, not TPM-enforced authorization.
+Keep an independent recovery method. Stop the service before removing the
+package; removing it does not erase user data or revoke website credentials.
+.SH SEE ALSO
+.BR swpasskeyd (1),
+.BR systemctl (1),
+.BR journalctl (1)

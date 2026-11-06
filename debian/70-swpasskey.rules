@@ -1,0 +1,4 @@
+# Grant the active local desktop user access; preserve distro TPM ownership.
+SUBSYSTEM=="misc", KERNEL=="uhid", TAG+="uaccess"
+SUBSYSTEM=="tpmrm", KERNEL=="tpmrm0", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0003:1209:F1D0.*", TAG+="uaccess"

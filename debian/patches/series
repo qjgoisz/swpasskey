@@ -1,0 +1,3 @@
+gcc16-test-vectors.patch
+system-catch2.patch
+ignore-packaging-state.patch

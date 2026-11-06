@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake+ninja --builddirectory=build/debian
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DSWPASSKEY_TPM=ON -DSWPASSKEY_LIBSECRET=ON -DSWPASSKEY_LIBNOTIFY=ON -DSWPASSKEY_SYSTEM_CATCH2=ON -DSWPASSKEY_ITEST=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+
+override_dh_auto_install:
+	install -D -m755 build/debian/swpasskeyd debian/swpasskey/usr/bin/swpasskeyd
+	install -D -m755 build/debian/swpasskeyctl debian/swpasskey/usr/bin/swpasskeyctl
+
+# XDG autostart starts it only after graphical login; do not enable it globally.
+override_dh_installsystemduser:
+	dh_installsystemduser --name=swpasskeyd --no-enable

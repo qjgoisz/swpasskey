@@ -1,0 +1,22 @@
+Source: swpasskey
+Section: utils
+Priority: optional
+Maintainer: Local Builder <builder@localhost.invalid>
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.28), ninja-build, pkgconf,
+ libssl-dev, libtss2-dev, libsecret-1-dev, libnotify-dev, libcatch2-dev (>= 3)
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/madeye/swpasskey
+
+Package: swpasskey
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libtss2-tcti-device0t64,
+ systemd, udev, dbus-user-session, notification-daemon
+Recommends: gnome-keyring | kwallet6, fido2-tools
+Suggests: man-db
+Description: TPM-backed virtual FIDO2 authenticator with desktop confirmation
+ Provides a virtual FIDO2 security key through Linux UHID, with TPM-backed
+ signing keys, software CTAP PIN verification and desktop notification actions
+ for user presence. Starts in the user's graphical session.
+ .
+ Experimental software: PIN verification is not enforced by TPM hardware.

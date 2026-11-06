@@ -1,0 +1,22 @@
+Description: Ignore generated Debian packaging state
+Author: Local Builder <builder@localhost.invalid>
+Forwarded: no
+
+diff --git a/.gitignore b/.gitignore
+index c684360..17cc2e7 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,3 +14,13 @@ CMakeUserPresets.json
+ packaging/macos/embedded.provisionprofile
+ __pycache__/
+ *.pyc
++
++# Debian packaging build state
++/.pc/
++/debian/.debhelper/
++/debian/swpasskey/
++/debian/swpasskey-dbgsym/
++/debian/*.substvars
++/debian/*.debhelper
++/debian/files
++/debian/debhelper-build-stamp

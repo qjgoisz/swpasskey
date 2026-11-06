@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=swpasskey TPM authenticator
+Comment=Start the TPM-backed passkey service with desktop confirmation
+Exec=/usr/bin/systemctl --user start swpasskeyd.service
+TryExec=/usr/bin/swpasskeyd
+Terminal=false
+NoDisplay=true

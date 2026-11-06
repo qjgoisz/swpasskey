@@ -1,0 +1,25 @@
+标准 Debian 打包
+================
+
+从项目根目录执行。debian/control 声明完整构建依赖；在管理员 shell 中
+可先运行 apt-get --simulate build-dep . 检查，再运行 apt-get build-dep .。
+需要 debhelper-compat 13（debhelper 提供）和 libcatch2-dev >= 3。
+
+普通用户构建：
+  dpkg-buildpackage -us -uc -b
+默认产物写到项目的上一级目录，需要该目录可写。
+构建从 build/debian 开始，使用系统 Catch2，不访问 GitHub。
+不依赖原来的 build/release，不需要 gh-proxy。
+
+本地源码基于上游提交 59f08259202028888934597513515fc3cb8ca8c9。
+修改保存在 debian/patches；dpkg-source --before-build . 会应用补丁，
+dpkg-source --after-build . 可撤销工具应用的补丁（不删除补丁文件）。
+不要重复手工应用已经生效的补丁。
+
+生成完整 3.0 (quilt) 源码包前，在项目根目录准备原始源码归档：
+  git archive --format=tar --prefix=swpasskey-0.2.0+git59f0825/ 59f08259202028888934597513515fc3cb8ca8c9 | gzip -n > ../swpasskey_0.2.0+git59f0825.orig.tar.gz
+  dpkg-buildpackage -us -uc -S
+
+后续可使用 sbuild 在干净环境构建并用 lintian 检查产物。
+当前维护者为本地占位身份，正式发布前须替换为真实维护者信息。
+历史自定义打包脚本和旧包已清理，统一使用 debian/ 构建。

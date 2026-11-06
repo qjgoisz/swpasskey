@@ -1,0 +1,87 @@
+.\" -*- coding: UTF-8 -*-
+.TH SWPASSKEYCTL 1 "2026-11-04" "swpasskey 0.2.0" "用户命令"
+.ds AD l
+.nr HY 0
+.mso zh.tmac
+.SH 名称
+swpasskeyctl \- 查看和控制本地 swpasskey 认证器
+.SH 概述
+.B swpasskeyctl
+.RB [ \-\-socket " " 路径 ]
+.RB [ \-\-json ]
+.I 命令
+.RI [ 参数 ]
+.SH 描述
+通过 Unix 控制套接字连接当前用户正在运行的 swpasskeyd。
+以与服务相同的普通用户身份运行，无需管理员权限。
+本命令不会自行启动服务。
+.SH 选项
+.TP
+.BR \-h "、" \-\-help
+显示命令帮助。
+.TP
+.BI \-\-socket " 路径"
+指定控制套接字，优先于 SWPASSKEY_CTL_SOCKET。
+.TP
+.B \-\-json
+输出任意命令的原始 JSON 响应。list 的 JSON 含完整凭据 ID。
+.SH 命令
+.TP
+.B list
+列出保存的凭据，包括网站、用户、凭据 ID 和密钥后端。
+表格显示列出时能够唯一识别凭据的 ID 前缀。
+.TP
+.B stats
+显示计数器、选定的密钥后端和凭据数量。
+使用 Debian 服务时，应确认后端为 TPM。
+.TP
+.B set-pin
+交互设置或替换 CTAP PIN，输入两次，终端关闭回显。
+需要通过服务的在场确认。本地控制操作不会询问旧 PIN。
+不要把 PIN 放入命令行参数、日志或聊天中。
+设置 PIN 不会替换已有凭据。
+.TP
+.BI delete " 凭据ID"
+用 4 到 64 位十六进制前缀删除单个凭据，不区分大小写。若匹配多个凭据，请补充更多字符。
+本地删除不可撤销，也不会同步删除网站上的注册记录。
+此命令没有额外的在场确认。
+.TP
+.B reset
+通过在场确认后重置认证器，清除凭据和 PIN 状态。
+原有网站注册将无法再通过此认证器登录。
+仅在明确放弃当前认证器时使用。
+.TP
+.BI log-level " 级别"
+修改当前进程的日志级别：error、warn、info 或 debug。
+服务重启后不保留此次修改。
+.TP
+.B quit
+请求服务退出，不会禁用以后的图形登录启动。
+.SH 示例
+查看状态并交互设置 PIN：
+.PP
+.nf
+swpasskeyctl stats
+swpasskeyctl list
+swpasskeyctl list --json
+swpasskeyctl set-pin
+.fi
+.SH 环境变量
+.TP
+.B SWPASSKEY_CTL_SOCKET
+覆盖默认控制套接字路径。
+.TP
+.B XDG_RUNTIME_DIR
+默认套接字为 $XDG_RUNTIME_DIR/swpasskey/ctl.sock。
+未设置时，使用数据目录：$XDG_DATA_HOME/swpasskey，
+或默认的 ~/.local/share/swpasskey。
+.SH 退出状态
+成功返回 0；通信失败或服务报告错误返回 1；
+检测到命令行用法错误或两次 PIN 输入不一致时返回 2。
+.SH 安全说明
+PIN 和在场确认是软件检查，并非 TPM 硬件强制授权。
+保留独立恢复方式。卸载软件包前停止服务；卸载不会删除用户数据或撤销网站凭据。
+.SH 参见
+.BR swpasskeyd (1)、
+.BR systemctl (1)、
+.BR journalctl (1)

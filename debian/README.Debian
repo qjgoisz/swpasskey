@@ -1,0 +1,36 @@
+swpasskey 本机包使用说明
+=======================
+
+本包提供强制 TPM 后端的普通用户服务 swpasskeyd.service。图形登录时
+通过 XDG autostart 启动；PIN 在浏览器输入，在场确认使用带允许/拒绝按钮
+的桌面通知。通知服务器必须支持 actions；无可用通知时请求超时拒绝。
+PIN 仍是软件检查，不是 TPM 硬件强制验证。
+
+安装或升级前停止原来手动运行的 swpasskeyd。安装后重启电脑，以加载
+uhid 模块、应用 udev 活动本地用户 ACL 并启动桌面用户服务。
+
+普通用户检查：
+  systemctl --user status swpasskeyd.service
+  swpasskeyctl stats
+  journalctl --user -u swpasskeyd.service -b --no-pager -n 50
+
+后端必须是 TPM，日志须有 presence_notify_ready。首次设置 PIN 使用
+swpasskeyctl set-pin，在本地交互输入，勿放入命令参数或聊天。
+先在 webauthn.io 验证 Chrome、Firefox 的注册/登录、拒绝、取消、超时、
+跨浏览器与重启后的登录。软件测试不能代替本机真实 TPM 和桌面验收。
+
+日常控制：systemctl --user start/stop/restart swpasskeyd.service
+禁用登录启动：在桌面自启动设置中关闭 swpasskey TPM authenticator。
+单独 systemctl disable 不会禁用 XDG autostart。
+
+卸载前以普通用户停止服务。卸载不删除用户数据（默认在
+~/.local/share/swpasskey）或密钥环，不撤销网站凭据；勿清空 TPM。
+升级后手动重启服务。保留独立的账户恢复方式。
+
+命令手册随包安装，支持英文和简体中文：
+  man swpasskeyd
+  man swpasskeyctl
+  man -L zh_CN swpasskeyd
+  man -L zh_CN swpasskeyctl
+  man -L C swpasskeyctl
+中文环境会优先显示中文版；已有 manpages-zh 不影响这些项目专用手册。

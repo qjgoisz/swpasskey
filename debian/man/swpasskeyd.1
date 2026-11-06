@@ -1,0 +1,114 @@
+.\" -*- coding: UTF-8 -*-
+.TH SWPASSKEYD 1 "2026-11-04" "swpasskey 0.2.0" "User Commands"
+.SH NAME
+swpasskeyd \- TPM-backed virtual FIDO2 authenticator with desktop confirmation
+.SH SYNOPSIS
+.B swpasskeyd
+.RI [ options ]
+.SH DESCRIPTION
+.B swpasskeyd
+creates a virtual FIDO HID device through Linux UHID. Browsers can use it as a
+security key for WebAuthn registration and authentication. The Debian user
+service uses TPM-backed signing keys and desktop notifications with Allow and
+Deny buttons. The browser handles the CTAP PIN prompt; the notification confirms
+user presence. A browser may cache a PIN verification token for a limited time.
+.PP
+This is a software authenticator. PIN verification and presence confirmation
+are not enforced by TPM hardware. Same-user malware may use TPM keys even
+though it cannot directly extract the private keys. Keep an independent account
+recovery method.
+.SH OPTIONS
+.TP
+.BR \-\-help
+Show command help and exit.
+.TP
+.BR \-\-version
+Print the upstream program version and exit. Use dpkg-query to see the Debian
+package revision.
+.TP
+.BI \-\-key-backend= backend
+Select auto, se, tpm, or software. On Linux, auto may fall back to software.
+The Debian service explicitly selects tpm and fails if TPM is unavailable.
+The se backend is for macOS.
+.TP
+.BI \-\-store " path"
+Use a different credential store.
+.TP
+.BI \-\-ctl-socket " path"
+Use a different Unix control socket. Overrides SWPASSKEY_CTL_SOCKET.
+.TP
+.B \-\-dek-file
+Keep the store encryption key in a mode-0600 sidecar file instead of the desktop
+keyring. This is not additional PIN protection.
+.TP
+.B \-\-testing
+Request automatic presence approval for development. Refused by this Debian
+release build. Never use automatic approval for real credentials.
+.SH DEBIAN SERVICE
+The service runs as the logged-in user, not root. XDG autostart starts it at
+graphical login. Avoid running another daemon against the same store.
+.PP
+.nf
+systemctl --user status swpasskeyd.service
+systemctl --user restart swpasskeyd.service
+journalctl --user -u swpasskeyd.service -b
+swpasskeyctl stats
+.fi
+.PP
+After first installation, reboot to load UHID and apply active-seat device
+permissions. Check that stats reports the TPM backend and the journal contains
+presence_notify_ready. Notifications must support actions. Do Not Disturb may
+hide them. If no notification backend is available, the daemon falls back to
+stdin; the service has no interactive stdin, so requests time out without approval.
+.PP
+Disable the swpasskey entry in desktop autostart settings to disable login
+startup. systemctl --user disable alone does not disable the XDG entry.
+.SH ENVIRONMENT
+.TP
+.B SWPASSKEY_LOG
+error, warn, info, or debug.
+.TP
+.B SWPASSKEY_PRESENCE
+Use auto, stdin, or notify on Linux. The Debian service sets notify.
+.TP
+.B SWPASSKEY_TPM_TCTI
+TPM transport, normally device:/dev/tpmrm0; fixed by the Debian service.
+.TP
+.B SWPASSKEY_CTL_SOCKET
+Override the control socket unless --ctl-socket is supplied.
+.TP
+.BR XDG_DATA_HOME ", " XDG_RUNTIME_DIR
+Select data and runtime directory bases.
+.TP
+.BR SWPASSKEY_TESTING ", " SWPASSKEY_HID_SOCKET ", " SWPASSKEY_TPM_UNSAFE_NOTPMRM
+Development controls for automatic approval, socket transport instead of UHID,
+and unsafe TPM transport respectively. Do not use for normal operation. The
+Debian service disables or removes these overrides.
+.SH FILES
+.TP
+.I $XDG_DATA_HOME/swpasskey/credentials.bin
+Credential store. Without XDG_DATA_HOME, uses ~/.local/share/swpasskey/credentials.bin.
+The desktop keyring normally holds the store encryption key; upstream can fall
+back to a mode-0600 sidecar file if the keyring is unavailable.
+.TP
+.I $XDG_RUNTIME_DIR/swpasskey/ctl.sock
+Default control socket. Without XDG_RUNTIME_DIR, uses the data directory.
+.TP
+.I /etc/xdg/autostart/swpasskey.desktop
+Graphical login startup entry.
+.TP
+.I /usr/lib/systemd/user/swpasskeyd.service
+Packaged user service. Use systemctl --user edit for local overrides.
+.TP
+.I /usr/lib/udev/rules.d/70-swpasskey.rules
+Access rules for the active local user. UHID access permits virtual HID creation.
+.SH NOTES
+Removing the package does not remove user credentials or revoke website passkeys.
+Do not clear the TPM or delete the store as a troubleshooting step: credentials
+may become unusable. Stop the service before removing the package.
+.SH SEE ALSO
+.BR swpasskeyctl (1),
+.BR systemctl (1),
+.BR journalctl (1)
+.PP
+https://github.com/madeye/swpasskey

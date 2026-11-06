@@ -1,0 +1,14 @@
+swpasskey (0.2.0+git59f0825-1local3) unstable; urgency=medium
+
+  * Install English and Simplified Chinese manual pages for both commands.
+  * Document Debian user service, PIN handling and credential management.
+
+ -- Local Builder <builder@localhost.invalid>  Wed, 04 Nov 2026 18:00:00 +0800
+
+swpasskey (0.2.0+git59f0825-1local2) unstable; urgency=medium
+
+  * Migrate local packaging to debhelper and source format 3.0 (quilt).
+  * Build offline with system Catch2; preserve GCC 16 test compatibility fixes.
+  * Ship TPM-only user service, desktop autostart and active-seat device rules.
+
+ -- Local Builder <builder@localhost.invalid>  Wed, 04 Nov 2026 17:00:00 +0800

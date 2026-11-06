@@ -1,0 +1,36 @@
+Description: Avoid GCC 16 vector growth array-bounds false positives in tests
+ Same test inputs; allocate or reserve the final buffer size explicitly.
+Author: Local Builder <builder@localhost.invalid>
+Forwarded: no
+Last-Update: 2026-11-04
+
+diff --git a/tests/cbor_test.cpp b/tests/cbor_test.cpp
+index 895bccf..af12365 100644
+--- a/tests/cbor_test.cpp
++++ b/tests/cbor_test.cpp
+@@ -60,8 +60,8 @@ TEST_CASE("integer map keys round-trip", "[cbor]") {
+ }
+ 
+ TEST_CASE("Reader::skip rejects absurd nesting instead of recursing", "[cbor]") {
+-  std::vector<std::uint8_t> deep(5000, 0x81);  // array(1) array(1) ...
+-  deep.push_back(0x00);
++  std::vector<std::uint8_t> deep(5001, 0x81);  // 5000 nested array(1), then uint(0)
++  deep.back() = 0x00;
+   swpk::cbor::Reader r(deep);
+   REQUIRE_FALSE(r.skip().has_value());
+   std::vector<std::uint8_t> ok = {0x81, 0x81, 0x81, 0x81, 0x00};
+diff --git a/tests/u2f_test.cpp b/tests/u2f_test.cpp
+index 0c8657b..9ea04ed 100644
+--- a/tests/u2f_test.cpp
++++ b/tests/u2f_test.cpp
+@@ -178,7 +178,9 @@ TEST_CASE("u2f register with UP allow") {
+   REQUIRE(reg.user_pub[0] == 0x04);
+ 
+   // Attestation signature over 0x00 || app || challenge || keyHandle || userPub
+-  std::vector<std::uint8_t> signed_over{0x00};
++  std::vector<std::uint8_t> signed_over;
++  signed_over.reserve(1 + application.size() + challenge.size() + reg.key_handle.size() + reg.user_pub.size());
++  signed_over.push_back(0x00);
+   signed_over.insert(signed_over.end(), application.begin(), application.end());
+   signed_over.insert(signed_over.end(), challenge.begin(), challenge.end());
+   signed_over.insert(signed_over.end(), reg.key_handle.begin(), reg.key_handle.end());
