@@ -1,0 +1,444 @@
+Description: Improve control output and support unique credential ID prefixes
+Forwarded: no
+
+diff --git a/include/swpasskey/ctl/json.hpp b/include/swpasskey/ctl/json.hpp
+index 12dd640..56f17c9 100644
+--- a/include/swpasskey/ctl/json.hpp
++++ b/include/swpasskey/ctl/json.hpp
+@@ -38,6 +38,7 @@ struct JsonRequest {
+   std::string error;
+   std::string get(std::string_view k, std::string_view def = "") const;
+ };
+-JsonRequest parse_flat_json(std::string_view line);
++JsonRequest parse_flat_json(std::string_view line, bool allow_nested = false);
++std::vector<JsonRequest> parse_object_array(std::string_view array);
+ 
+ }  // namespace swpk::ctl
+diff --git a/src/ctl/json.cpp b/src/ctl/json.cpp
+index a9ec2dd..4d94eb4 100644
+--- a/src/ctl/json.cpp
++++ b/src/ctl/json.cpp
+@@ -193,9 +193,30 @@ bool parse_string(std::string_view s, std::size_t& i, std::string& out) {
+   return false;
+ }
+ 
++// Skip a compound value without treating braces inside strings as delimiters.
++bool skip_compound(std::string_view s, std::size_t& i) {
++  std::vector<char> ends;
++  do {
++    const char c = s[i];
++    if (c == '"') {
++      std::string ignored;
++      if (!parse_string(s, i, ignored)) return false;
++      continue;
++    }
++    if (c == '{' || c == '[') {
++      ends.push_back(c == '{' ? '}' : ']');
++    } else if (c == '}' || c == ']') {
++      if (ends.empty() || ends.back() != c) return false;
++      ends.pop_back();
++    }
++    ++i;
++  } while (i < s.size() && !ends.empty());
++  return ends.empty();
++}
++
+ }  // namespace
+ 
+-JsonRequest parse_flat_json(std::string_view s) {
++JsonRequest parse_flat_json(std::string_view s, bool allow_nested) {
+   JsonRequest r;
+   std::size_t i = 0;
+   skip_ws(s, i);
+@@ -230,8 +251,12 @@ JsonRequest parse_flat_json(std::string_view s) {
+         return r;
+       }
+     } else if (i < s.size() && (s[i] == '{' || s[i] == '[')) {
+-      r.error = "nested values unsupported";
+-      return r;
++      const auto start = i;
++      if (!allow_nested || !skip_compound(s, i)) {
++        r.error = "invalid or unsupported nested value";
++        return r;
++      }
++      v = s.substr(start, i - start);
+     } else {
+       const std::size_t start = i;
+       while (i < s.size() && s[i] != ',' && s[i] != '}' && s[i] != ' ' && s[i] != '\n') {
+@@ -258,4 +283,24 @@ JsonRequest parse_flat_json(std::string_view s) {
+   }
+ }
+ 
++std::vector<JsonRequest> parse_object_array(std::string_view s) {
++  std::vector<JsonRequest> rows;
++  if (s.empty() || s.front() != '[') return {};
++  std::size_t i = 1;
++  skip_ws(s, i);
++  while (i < s.size() && s[i] == '{') {
++    const auto start = i;
++    if (!skip_compound(s, i)) return {};
++    auto row = parse_flat_json(s.substr(start, i - start));
++    if (!row.ok) return {};
++    rows.push_back(std::move(row));
++    skip_ws(s, i);
++    if (i == s.size() || s[i] != ',') break;
++    ++i;
++    skip_ws(s, i);
++  }
++  if (i == s.size() || s[i] != ']') return {};
++  return rows;
++}
++
+ }  // namespace swpk::ctl
+diff --git a/src/ctl/main.cpp b/src/ctl/main.cpp
+index 64b4d66..06f7866 100644
+--- a/src/ctl/main.cpp
++++ b/src/ctl/main.cpp
+@@ -5,7 +5,11 @@
+ #include <termios.h>
+ #include <unistd.h>
+ 
++#include <algorithm>
++#include <array>
++#include <clocale>
+ #include <cstdio>
++#include <cwchar>
+ #include <cstdlib>
+ #include <cstring>
+ #include <ctime>
+@@ -18,9 +22,9 @@ namespace {
+ constexpr const char* kUsage =
+     "swpasskeyctl — control swpasskeyd over its Unix socket\n"
+     "\n"
+-    "Usage: swpasskeyctl [--socket PATH] <command>\n"
++    "Usage: swpasskeyctl [--socket PATH] [--json] <command>\n"
+     "  list                 Credentials: rp, user, cred_id, sign_count, backend\n"
+-    "  delete <cred-id-hex> Delete one credential (destroys the HW key handle)\n"
++    "  delete <id-prefix>   Delete one credential by unique hex prefix (4+ digits)\n"
+     "  reset                Factory reset (the daemon asks for user presence)\n"
+     "  set-pin              Set the CTAP PIN (prompts; daemon asks for presence)\n"
+     "  stats                Counters, key backend, per-backend credential counts\n"
+@@ -54,66 +58,101 @@ std::string read_secret(const char* prompt) {
+   return s;
+ }
+ 
+-std::string json_str(std::string_view v) {
+-  std::string out = "\"";
+-  for (char c : v) {
+-    if (c == '"' || c == '\\') out.push_back('\\');
+-    out.push_back(c);
+-  }
+-  out.push_back('"');
+-  return out;
+-}
+-
+-// Very small extraction helpers for the list output (values are flat).
+-std::string field(std::string_view obj, std::string_view key) {
+-  const std::string k = "\"" + std::string(key) + "\":";
+-  auto p = obj.find(k);
+-  if (p == std::string_view::npos) return "";
+-  p += k.size();
+-  if (p < obj.size() && obj[p] == '"') {
+-    auto e = obj.find('"', p + 1);
+-    return std::string(obj.substr(p + 1, e - p - 1));
+-  }
+-  auto e = obj.find_first_of(",}", p);
+-  return std::string(obj.substr(p, e - p));
++// Sanitize terminal controls and measure columns in display cells, not bytes.
++std::size_t display_width(std::string& value) {
++  std::mbstate_t state{};
++  std::size_t width = 0;
++  for (std::size_t i = 0; i < value.size();) {
++    wchar_t ch{};
++    const auto count = std::mbrtowc(&ch, value.data() + i, value.size() - i, &state);
++    const bool invalid = count == static_cast<std::size_t>(-1) ||
++                         count == static_cast<std::size_t>(-2);
++    const auto bytes = invalid || count == 0 ? 1 : count;
++    const int cells = invalid || count == 0 ? -1 : ::wcwidth(ch);
++    if (cells < 0) {
++      value.replace(i, bytes, "?");
++      ++i;
++      ++width;
++      state = {};
++    } else {
++      i += bytes;
++      width += static_cast<std::size_t>(cells);
++    }
++  }
++  return width;
+ }
+ 
+-void print_list(const std::string& reply) {
+-  auto arr = reply.find("\"creds\":[");
+-  if (arr == std::string::npos) {
+-    std::puts(reply.c_str());
+-    return;
+-  }
+-  std::printf("%-28s %-16s %-12s %-6s %-9s %s\n", "rp", "user", "cred_id", "count", "backend", "last_used");
+-  std::size_t pos = arr;
+-  int n = 0;
+-  for (;;) {
+-    auto s = reply.find('{', pos);
+-    if (s == std::string::npos) break;
+-    auto e = reply.find('}', s);
+-    if (e == std::string::npos) break;
+-    const std::string obj = reply.substr(s, e - s + 1);
+-    pos = e + 1;
+-    if (obj.find("\"cred_id\"") == std::string::npos) continue;
+-    const std::string lu = field(obj, "last_used");
++void print_list(const swpk::ctl::JsonRequest& reply) {
++  const auto entries = swpk::ctl::parse_object_array(reply.get("creds"));
++  using Row = std::array<std::string, 6>;
++  std::vector<Row> rows{{"Site", "User", "Credential ID", "Uses", "Backend", "Last used"}};
++  for (const auto& entry : entries) {
++    const auto id = entry.get("cred_id");
++    std::size_t length = std::min<std::size_t>(12, id.size());
++    for (const auto& other : entries) {
++      const auto other_id = other.get("cred_id");
++      if (other_id == id) continue;
++      while (length < id.size() && other_id.starts_with(id.substr(0, length))) ++length;
++    }
++    const auto last = entry.get("last_used", "0");
++    const auto timestamp = static_cast<std::time_t>(std::strtoull(last.c_str(), nullptr, 10));
+     char when[32] = "-";
+-    if (!lu.empty() && lu != "0") {
+-      const auto t = static_cast<std::time_t>(std::strtoull(lu.c_str(), nullptr, 10));
+-      std::tm tm{};
+-      localtime_r(&t, &tm);
++    std::tm tm{};
++    if (timestamp != 0 && localtime_r(&timestamp, &tm)) {
+       std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", &tm);
+     }
+-    std::printf("%-28s %-16s %-12s %-6s %-9s %s\n", field(obj, "rp").c_str(), field(obj, "user").c_str(),
+-                (field(obj, "cred_id").substr(0, 12)).c_str(), field(obj, "sign_count").c_str(),
+-                field(obj, "backend").c_str(), when);
+-    ++n;
++    rows.push_back({entry.get("rp"), entry.get("user"), id.substr(0, length),
++                    entry.get("sign_count"), entry.get("backend"), when});
++  }
++  if (entries.empty()) {
++    std::puts("No credentials stored.");
++    return;
++  }
++  std::array<std::size_t, 6> widths{};
++  std::vector<std::array<std::size_t, 6>> row_widths;
++  for (auto& row : rows) {
++    std::array<std::size_t, 6> cells{};
++    for (std::size_t i = 0; i < row.size(); ++i) {
++      cells[i] = display_width(row[i]);
++      widths[i] = std::max(widths[i], cells[i]);
++    }
++    row_widths.push_back(cells);
++  }
++  for (std::size_t r = 0; r < rows.size(); ++r) {
++    for (std::size_t i = 0; i < rows[r].size(); ++i) {
++      std::fputs(rows[r][i].c_str(), stdout);
++      if (i + 1 < rows[r].size()) {
++        std::fputs(std::string(widths[i] - row_widths[r][i] + 2, ' ').c_str(), stdout);
++      }
++    }
++    std::putchar('\n');
++  }
++  std::printf("%zu credential%s\n", entries.size(), entries.size() == 1 ? "" : "s");
++}
++
++void print_stats(const swpk::ctl::JsonRequest& reply) {
++  for (const auto& [key, value] : reply.fields) {
++    if (key == "ok") continue;
++    std::string label = key;
++    std::replace(label.begin(), label.end(), '_', ' ');
++    if (value.starts_with('{')) {
++      const auto group = swpk::ctl::parse_flat_json(value);
++      if (group.fields.empty()) continue;
++      std::printf("%s:\n", label.c_str());
++      for (const auto& [name, count] : group.fields) {
++        std::printf("  %s: %s\n", name.c_str(), count.c_str());
++      }
++    } else {
++      const auto* shown = value == "true" ? "yes" : value == "false" ? "no" : value.c_str();
++      std::printf("%s: %s\n", label.c_str(), shown);
++    }
+   }
+-  std::printf("%d credential%s (full ids: swpasskeyctl list --json)\n", n, n == 1 ? "" : "s");
+ }
+ 
+ }  // namespace
+ 
+ int main(int argc, char** argv) {
++  std::setlocale(LC_CTYPE, "");
+   std::string socket_path;
+   if (const char* e = std::getenv("SWPASSKEY_CTL_SOCKET"); e != nullptr && *e != 0) {
+     socket_path = e;
+@@ -143,49 +182,57 @@ int main(int argc, char** argv) {
+     socket_path = swpk::ctl::default_socket_path().string();
+   }
+   const std::string& cmd = args[0];
+-  std::string line;
+-  if (cmd == "list" || cmd == "stats" || cmd == "reset" || cmd == "quit") {
+-    line = "{\"op\":\"" + cmd + "\"}";
+-  } else if (cmd == "delete") {
+-    if (args.size() < 2) {
+-      std::fputs("swpasskeyctl: delete needs a credential id (hex)\n", stderr);
+-      return 2;
+-    }
+-    line = "{\"op\":\"delete\",\"cred_id\":" + json_str(args[1]) + "}";
+-  } else if (cmd == "log-level") {
+-    if (args.size() < 2) {
+-      std::fputs("swpasskeyctl: log-level needs error|warn|info|debug\n", stderr);
++  swpk::ctl::JsonWriter request;
++  request.begin_object().str("op", cmd);
++  if (cmd == "delete" || cmd == "log-level") {
++    if (args.size() != 2) {
++      std::fprintf(stderr, "Usage: swpasskeyctl %s %s\n", cmd.c_str(),
++                   cmd == "delete" ? "<id-prefix>" : "<error|warn|info|debug>");
+       return 2;
+     }
+-    line = "{\"op\":\"log-level\",\"level\":" + json_str(args[1]) + "}";
++    request.str(cmd == "delete" ? "cred_id" : "level", args[1]);
+   } else if (cmd == "set-pin") {
+     const std::string pin = args.size() >= 2 ? args[1] : read_secret("New PIN: ");
+-    if (args.size() < 2) {
+-      const std::string again = read_secret("Repeat PIN: ");
+-      if (again != pin) {
+-        std::fputs("swpasskeyctl: PINs do not match\n", stderr);
+-        return 2;
+-      }
++    if (args.size() < 2 && read_secret("Repeat PIN: ") != pin) {
++      std::fputs("swpasskeyctl: PINs do not match\n", stderr);
++      return 2;
+     }
+-    line = "{\"op\":\"set-pin\",\"pin\":" + json_str(pin) + "}";
+-  } else {
++    request.str("pin", pin);
++  } else if (cmd != "list" && cmd != "stats" && cmd != "reset" && cmd != "quit") {
+     std::fprintf(stderr, "swpasskeyctl: unknown command '%s'\n", cmd.c_str());
+     return 2;
+   }
+   if (cmd == "reset" || cmd == "set-pin") {
+     std::fputs("swpasskeyctl: waiting for user presence on the daemon...\n", stderr);
+   }
+-  auto r = swpk::ctl::request(socket_path, line);
++  auto r = swpk::ctl::request(socket_path, request.end_object().finish());
+   if (!r) {
+     std::fprintf(stderr, "swpasskeyctl: cannot reach swpasskeyd at %s (is it running?)\n",
+                  socket_path.c_str());
+     return 1;
+   }
+-  const bool ok = r->find("\"ok\":true") != std::string::npos;
+-  if (cmd == "list" && !json && ok) {
+-    print_list(*r);
+-  } else {
++  const auto reply = swpk::ctl::parse_flat_json(*r, true);
++  const bool ok = reply.ok && reply.get("ok") == "true";
++  if (json) {
+     std::puts(r->c_str());
++  } else if (!ok) {
++    auto error = reply.get("error", "invalid response from swpasskeyd");
++    display_width(error);
++    std::fprintf(stderr, "swpasskeyctl: %s\n", error.c_str());
++  } else if (cmd == "list") {
++    print_list(reply);
++  } else if (cmd == "stats") {
++    print_stats(reply);
++  } else if (cmd == "delete") {
++    std::puts("Credential deleted.");
++  } else if (cmd == "set-pin") {
++    std::puts("PIN saved.");
++  } else if (cmd == "reset") {
++    std::puts("Authenticator reset.");
++  } else if (cmd == "quit") {
++    std::puts("Stop requested.");
++  } else {
++    std::printf("Log level set to %s.\n", reply.get("level").c_str());
+   }
+   return ok ? 0 : 1;
+ }
+diff --git a/src/ctl/server.cpp b/src/ctl/server.cpp
+index bdd6cd6..a7b88e5 100644
+--- a/src/ctl/server.cpp
++++ b/src/ctl/server.cpp
+@@ -31,28 +31,6 @@ std::string hex(std::span<const std::uint8_t> v) {
+   return s;
+ }
+ 
+-Result<std::vector<std::uint8_t>> unhex(std::string_view s) {
+-  if (s.size() % 2 != 0) {
+-    return std::unexpected(Status::InvalidParameter);
+-  }
+-  std::vector<std::uint8_t> out;
+-  auto nib = [](char c) -> int {
+-    if (c >= '0' && c <= '9') return c - '0';
+-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+-    return -1;
+-  };
+-  for (std::size_t i = 0; i < s.size(); i += 2) {
+-    const int hi = nib(s[i]);
+-    const int lo = nib(s[i + 1]);
+-    if (hi < 0 || lo < 0) {
+-      return std::unexpected(Status::InvalidParameter);
+-    }
+-    out.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
+-  }
+-  return out;
+-}
+-
+ const char* backend_name(crypto::BackendKind k) {
+   switch (k) {
+     case crypto::BackendKind::Software:
+@@ -172,14 +150,26 @@ std::string handle_request(std::string_view line, ServerDeps& deps) {
+     if (deps.auth == nullptr) {
+       return error_json("no authenticator");
+     }
+-    auto id = unhex(req.get("cred_id"));
+-    if (!id || id->size() != 32) {
+-      return error_json("cred_id must be 64 hex chars");
++    auto prefix = req.get("cred_id");
++    if (prefix.size() < 4 || prefix.size() > 64 ||
++        prefix.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
++      return error_json("credential ID must be 4 to 64 hex characters");
++    }
++    for (char& c : prefix) {
++      if (c >= 'A' && c <= 'F') c = static_cast<char>(c - 'A' + 'a');
++    }
++    if (deps.store == nullptr) return error_json("no store");
++    std::optional<std::array<std::uint8_t, 32>> id;
++    for (const auto& credential : deps.store->all()) {
++      if (!hex(credential.cred_id).starts_with(prefix)) continue;
++      if (id) return error_json("ambiguous credential ID prefix; enter more characters");
++      id = credential.cred_id;
+     }
++    if (!id) return error_json("no such credential");
+     if (auto r = deps.auth->ctl_delete(*id); !r) {
+       return error_json(status_name(r.error()), r.error());
+     }
+-    log::warn("ctl_delete", {{"cred_id", req.get("cred_id").substr(0, 16)}});
++    log::warn("ctl_delete", {{"cred_id", hex(*id).substr(0, 16)}});
+     JsonWriter w;
+     w.begin_object().boolean("ok", true).end_object();
+     return w.finish();
+diff --git a/tests/ctl_test.cpp b/tests/ctl_test.cpp
+index 9b1b6d7..0a0314d 100644
+--- a/tests/ctl_test.cpp
++++ b/tests/ctl_test.cpp
+@@ -56,9 +56,18 @@ TEST_CASE("ctl requests: stats, list, delete, set-pin, reset, log-level", "[ctl]
+ 
+   REQUIRE(ctl::handle_request(R"({"op":"delete","cred_id":"zz"})", deps).find("\"ok\":false") != std::string::npos);
+   REQUIRE(ctl::handle_request("{\"op\":\"delete\",\"cred_id\":\"" + std::string(64, '0') + "\"}", deps).find("no such credential") != std::string::npos);
+-  REQUIRE(ctl::handle_request("{\"op\":\"delete\",\"cred_id\":\"" + hex(id) + "\"}", deps).find("\"ok\":true") != std::string::npos);
++  auto collision = rig.store->all().front();
++  collision.cred_id.back() ^= 1;
++  REQUIRE(rig.store->put(collision).has_value());
++  const auto remove = [&](std::string prefix) {
++    return ctl::handle_request("{\"op\":\"delete\",\"cred_id\":\"" + prefix + "\"}", deps);
++  };
++  REQUIRE(remove(hex(id).substr(0, 5)).find("ambiguous") != std::string::npos);
++  REQUIRE(rig.store->size() == 2);
++  REQUIRE(remove(hex(collision.cred_id)).find("\"ok\":true") != std::string::npos);
++  REQUIRE(remove(hex(id).substr(0, 5)).find("\"ok\":true") != std::string::npos);
+   REQUIRE(rig.store->size() == 0);
+-  REQUIRE(static_cast<FakeHwBackend*>(rig.hw.get())->destroys == 1);
++  REQUIRE(static_cast<FakeHwBackend*>(rig.hw.get())->destroys == 2);
+ 
+   REQUIRE(ctl::handle_request(R"({"op":"set-pin","pin":"123"})", deps).find("pin policy") != std::string::npos);
+   rig.presence.next = ui::Decision::Deny;

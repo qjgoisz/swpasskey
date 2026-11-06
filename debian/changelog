@@ -1,3 +1,9 @@
+swpasskey (0.2.0+git59f0825-1local4) unstable; urgency=medium
+
+  * Improve control CLI output and accept unique credential ID prefixes.
+
+ -- Local Builder <builder@localhost.invalid>  Fri, 06 Nov 2026 12:00:00 +0800
+
 swpasskey (0.2.0+git59f0825-1local3) unstable; urgency=medium
 
   * Install English and Simplified Chinese manual pages for both commands.
