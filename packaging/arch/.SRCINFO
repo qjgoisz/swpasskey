@@ -1,0 +1,29 @@
+pkgbase = swpasskey
+	pkgdesc = TPM-backed virtual FIDO2 authenticator with desktop confirmation
+	pkgver = 0.2.0.r2.g68a40f5
+	pkgrel = 1
+	url = https://github.com/qjgoisz/swpasskey
+	arch = x86_64
+	license = MIT
+	makedepends = cmake
+	makedepends = ninja
+	makedepends = pkgconf
+	makedepends = catch2>=3
+	depends = glibc
+	depends = gcc-libs
+	depends = glib2
+	depends = openssl
+	depends = tpm2-tss
+	depends = libsecret
+	depends = libnotify
+	depends = systemd
+	optdepends = notification-daemon: desktop approval prompts (must support notification actions)
+	optdepends = man-db: read the installed manuals
+	optdepends = gnome-keyring: Secret Service provider for the credential encryption key
+	options = !debug
+	source = swpasskey-68a40f56c439064048ca725bb349a25c3fac818e.tar.gz::https://codeload.github.com/qjgoisz/swpasskey/tar.gz/68a40f56c439064048ca725bb349a25c3fac818e
+	source = openssl-x509-name.patch
+	sha256sums = 43258cee4a9ad1d0a4ed772e4a5a45d7ed71343d4fb275a0bd163134dd0bc983
+	sha256sums = 4cf7914dcd50375ac2812e937680ff387b15e464c67db57c434f43d3b66989eb
+
+pkgname = swpasskey

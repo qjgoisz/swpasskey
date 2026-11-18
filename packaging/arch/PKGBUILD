@@ -1,0 +1,62 @@
+pkgname=swpasskey
+pkgver=0.2.0.r2.g68a40f5
+pkgrel=1
+pkgdesc='TPM-backed virtual FIDO2 authenticator with desktop confirmation'
+arch=('x86_64')
+url='https://github.com/qjgoisz/swpasskey'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'glib2' 'openssl' 'tpm2-tss' 'libsecret' 'libnotify' 'systemd')
+makedepends=('cmake' 'ninja' 'pkgconf' 'catch2>=3')
+optdepends=(
+  'notification-daemon: desktop approval prompts (must support notification actions)'
+  'man-db: read the installed manuals'
+  'gnome-keyring: Secret Service provider for the credential encryption key'
+)
+options=('!debug')
+_commit=68a40f56c439064048ca725bb349a25c3fac818e
+source=("$pkgname-$_commit.tar.gz::https://codeload.github.com/qjgoisz/swpasskey/tar.gz/$_commit"
+        openssl-x509-name.patch)
+sha256sums=('43258cee4a9ad1d0a4ed772e4a5a45d7ed71343d4fb275a0bd163134dd0bc983'
+            '4cf7914dcd50375ac2812e937680ff387b15e464c67db57c434f43d3b66989eb')
+
+prepare() {
+  cd "$pkgname-$_commit"
+  local patch_name
+  while IFS= read -r patch_name; do
+    [[ -z $patch_name || $patch_name == \#* ]] && continue
+    patch -Np1 -i "debian/patches/$patch_name"
+  done < debian/patches/series
+  patch -Np1 -i "$srcdir/openssl-x509-name.patch"
+}
+
+build() {
+  cmake -S "$pkgname-$_commit" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
+    -DSWPASSKEY_TPM=ON -DSWPASSKEY_LIBSECRET=ON -DSWPASSKEY_LIBNOTIFY=ON \
+    -DSWPASSKEY_SYSTEM_CATCH2=ON -DSWPASSKEY_ITEST=OFF
+  mkdir -p -m 700 "$srcdir/.test-runtime"
+  XDG_RUNTIME_DIR="$srcdir/.test-runtime" cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  install -Dm755 build/swpasskeyd "$pkgdir/usr/bin/swpasskeyd"
+  install -Dm755 build/swpasskeyctl "$pkgdir/usr/bin/swpasskeyctl"
+  cd "$pkgname-$_commit"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 debian/swpasskey.swpasskeyd.user.service "$pkgdir/usr/lib/systemd/user/swpasskeyd.service"
+  install -Dm644 debian/70-swpasskey.rules "$pkgdir/usr/lib/udev/rules.d/70-swpasskey.rules"
+  install -Dm644 debian/swpasskey.conf "$pkgdir/usr/lib/modules-load.d/swpasskey.conf"
+  install -Dm644 debian/swpasskey.desktop "$pkgdir/etc/xdg/autostart/swpasskey.desktop"
+  local command
+  for command in swpasskeyd swpasskeyctl; do
+    install -Dm644 "debian/man/$command.1" "$pkgdir/usr/share/man/man1/$command.1"
+    install -Dm644 "debian/man/$command.zh_CN.1" "$pkgdir/usr/share/man/zh_CN/man1/$command.1"
+  done
+  # Adapt distribution-specific wording in the shared manual pages.
+  sed -i -e 's/Debian/Arch Linux/g' -e 's/dpkg-query/pacman -Q swpasskey/g' \
+    "$pkgdir"/usr/share/man/{,zh_CN/}man1/*.1
+}

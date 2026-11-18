@@ -1,0 +1,22 @@
+--- a/src/crypto/self_signed_cert.cpp
++++ b/src/crypto/self_signed_cert.cpp
+@@ -68,15 +68,16 @@
+   }
+   constexpr long kTwentyYears = 20L * 365L * 24L * 60L * 60L;
+   const std::string cn(subject_cn);
+-  X509_NAME* name = X509_get_subject_name(cert.get());
++  std::unique_ptr<X509_NAME, decltype(&X509_NAME_free)> name(X509_NAME_new(), X509_NAME_free);
+   if (name == nullptr || X509_set_version(cert.get(), 2 /* v3 */) != 1 ||
+       ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1) != 1 ||
+       X509_gmtime_adj(X509_getm_notBefore(cert.get()), 0) == nullptr ||
+       X509_gmtime_adj(X509_getm_notAfter(cert.get()), kTwentyYears) == nullptr ||
+-      X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
++      X509_NAME_add_entry_by_txt(name.get(), "CN", MBSTRING_ASC,
+                                  reinterpret_cast<const unsigned char*>(cn.c_str()), -1, -1,
+                                  0) != 1 ||
+-      X509_set_issuer_name(cert.get(), name) != 1 ||
++      X509_set_subject_name(cert.get(), name.get()) != 1 ||
++      X509_set_issuer_name(cert.get(), name.get()) != 1 ||
+       X509_set_pubkey(cert.get(), pkey.get()) != 1 ||
+       X509_sign(cert.get(), pkey.get(), EVP_sha256()) == 0) {
+     return std::unexpected(Status::Other);
